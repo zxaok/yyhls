@@ -1,47 +1,46 @@
-const fetch = require('node-fetch');
+const axios = require('axios');
+const NodeCache = require('node-cache');
 
-const cache = new Map();
-const CACHE_TTL = 300000; // 5分钟缓存
+const cache = new NodeCache({ stdTTL: 600, checkperiod: 120, maxKeys: 1000 });
 
 module.exports = async (req, res) => {
-  res.setHeader('Content-Type', 'text/plain'); // 设置响应头，防止Vercel当成HTML
+  const id = req.url.slice(1);
 
-  const id = req.url.split('/').pop();
-
-  if (!id || !/^\d+$/.test(id)) {
-    return res.status(400).send('Invalid ID');
+  if (!id) {
+    return res.status(400).json({ error: 'Missing video ID' });
   }
 
-  if (cache.has(id) && Date.now() - cache.get(id).timestamp < CACHE_TTL) {
-    return res.redirect(cache.get(id).url);
+  const cachedUrl = cache.get(id);
+  if (cachedUrl) {
+    console.log(`Returning cached URL for ${id}`);
+    return res.redirect(cachedUrl);
   }
 
   const targetUrl = `http://interface.yy.com/hls/get/stream/15013/xv_${id}_${id}_0_0_0/15013/xa_${id}_${id}_0_0_0?source=h5player&type=flv`;
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36';
 
   try {
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36'
-      }
+    console.log(`Fetching URL: ${targetUrl}`);
+
+    const response = await axios.get(targetUrl, {
+      headers: { 'User-Agent': userAgent },
+      timeout: 8000, 
     });
 
-    if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
+    if (response.data && response.data.hls) {
+      const flvUrl = response.data.hls;
 
-    const data = await response.json();
+      console.log(`FLV URL found for ID ${id}: ${flvUrl}`);
 
-    if (data.hls) {
-      cache.set(id, {
-        url: data.hls,
-        timestamp: Date.now()
-      });
+      cache.set(id, flvUrl);
 
-      // 设置5分钟缓存
-      res.setHeader('Cache-Control', `public, max-age=${CACHE_TTL / 1000}`);
-      return res.redirect(data.hls);
+      return res.redirect(flvUrl);
     } else {
-      return res.status(404).send('FLV link not found');
+      throw new Error('No FLV URL found in response');
     }
   } catch (error) {
-    return res.status(500).send(`Server error: ${error.message}`);
+    console.error('Error fetching video URL:', error.message);
+
+    return res.status(500).json({ error: error.message });
   }
 };

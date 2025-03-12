@@ -1,9 +1,10 @@
 const fetch = require('node-fetch');
 
 const cache = new Map();
-const CACHE_TTL = 300000; 
-const MAX_CACHE_SIZE = 100; 
+const CACHE_TTL = 300000; // Cache time: 5 minutes
+const MAX_CACHE_SIZE = 100; // Max cache size
 
+// Clean expired cache
 function cleanCache() {
   const now = Date.now();
   for (const [key, value] of cache) {
@@ -18,8 +19,8 @@ function cleanCache() {
 }
 
 module.exports = async (req, res) => {
-  const { query } = req;
-  const id = query.id;
+  // 从路径中提取 ID
+  const id = req.url.split('/').pop();
 
   if (!id || !/^\d+$/.test(id)) {
     return res.status(400).send('Invalid ID');
